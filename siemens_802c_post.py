@@ -53,9 +53,10 @@ UNITS =                  'G21' #G21 for metric, G20 for us standard
 MOTION_MODE =            'G90'    # G90 for absolute moves, G91 for relative
 UNITS =                  'G21'    # G21 for metric, G20 for us standard
 
-MACHINE_NAME = "Tree MM"
+MACHINE_NAME = "Toptech M4"
 CORNER_MIN = {'x':-340, 'y':0, 'z':0 }
 CORNER_MAX = {'x':340, 'y':-355, 'z':-150 }
+Z_SAFETY_HEIGHT = 0
 
 #Preamble text will appear at the beginning of the GCODE output file.
 PREAMBLE = '''G17
@@ -184,6 +185,7 @@ def format_outstring(strTbl):
   return s
 
 def parse(pathobj):
+    global Z_SAFETY_HEIGHT
     out = ""
     lastcommand = None
 
@@ -216,11 +218,15 @@ def parse(pathobj):
             for param in params:
                 if param in c.Parameters:
                     if param == 'F':
-                        outstring.append(param + format(c.Parameters['F'], '.0f'))
+                        if command != "G0":
+                            outstring.append(param + format(c.Parameters['F'], '.0f'))
                     elif param == 'S':
                         outstring.append(param + format(c.Parameters[param], '.0f'))
                     elif param == 'T':
                         outstring.append(param + format(c.Parameters['T'], '.0f'))
+                    elif param == 'Z' and command == 'G0':
+                        Z_SAFETY_HEIGHT = format(c.Parameters['Z'], '.3f')
+                        outstring.append(param + format(c.Parameters[param], '.3f'))
                     else:
                         outstring.append(param + format(c.Parameters[param], '.3f'))
 
@@ -238,6 +244,9 @@ def parse(pathobj):
                     out = []
                 else:
                     outstring.pop(0) #remove the command
+
+            if command in ('G80', 'G98', ):
+                continue
 
             if command in ('G81', 'G82', 'G83'):
                 out += linenumber() + "; Drill Seq\n"
@@ -258,60 +267,22 @@ def parse(pathobj):
         return out
 
 def drill_translate(outstring, cmd, params):
+    global Z_SAFETY_HEIGHT
+    pprint(params)
+    trBuff = ""
 
-  pprint(params)
+    if cmd == 'G83':
+        trBuff += linenumber() + "G0 X" + format(params['X'], '.3f') + " "
+        trBuff += "Y" + format(params['Y'], '.3f') + "\n"
+        trBuff += linenumber() + "R101=" + "0.000 " + "R102=" + format(params['R'], '.3f')+ "\n"
+        trBuff += linenumber() + "R103=" + "0.000 " + "R104=" + format(params['Z'], '.3f') + "\n"
+        trBuff += linenumber() + "R105=" + "0.000 " + "R107=" + format(params['F'], '.3f') + "\n"
+        trBuff += linenumber() + "R108=" + format(params['F'], '.3f') + " R109=" + "0.000" + "\n"
+        trBuff += linenumber() + "R110=-" + format(params['Q'], '.3f') + " R111=" + "0.000" + "\n"
+        trBuff += linenumber() + "R127=1.000\n" + linenumber() + "LCYC83\n"
+        trBuff += linenumber() + "G0 Z%s\n" % (Z_SAFETY_HEIGHT)
 
-  trBuff = ""
-
-  if cmd == 'G83':
-      trBuff += linenumber() + "G0 X" + format(params['X'], '.0f') + " "
-      trBuff += "Y" + format(params['Y'], '.0f') + "\n"
-      trBuff += linenumber() + "R101=" + "0 " + "R102=" + format(params['R'], '.0f')+ "\n"
-      trBuff += linenumber() + "R103=" + "0 " + "R104=" + format(params['Z'], '.0f') + "\n"
-      trBuff += linenumber() + "R105=" + "0 " + "R107=" + format(params['F'], '.0f') + "\n"
-      trBuff += linenumber() + "R108=" + format(params['Q'], '.0f') + " R109=" + "0" + "\n"
-      trBuff += linenumber() + "R110=" + format(params['Q'], '.0f') + " R111=" + "0" + "\n"
-      trBuff += linenumber() + "R127=1.000\n" + linenumber() + "LCYC83\n"
-#  drill_Speed = params['F'] * SPEED_MULTIPLIER
-#  if cmd == 'G83':
-#    drill_Step = params['Q']
-#  elif cmd == 'G82':
-#    drill_DwellTime = params['P']
-#
-#  if MOTION_MODE == 'G91':
-#    trBuff += linenumber() + "G90" + "\n" # Force des deplacements en coordonnees absolues pendant les cycles
-#
-#  # Mouvement(s) preliminaire(s))
-#  if CURRENT_Z < RETRACT_Z:
-#    trBuff += linenumber() + 'G0 Z' + format(RETRACT_Z, strFormat) + "\n"
-#  trBuff += linenumber() + 'G0 X' + format(drill_X, strFormat) + ' Y' + format(drill_Y, strFormat) + "\n"
-#  if CURRENT_Z > RETRACT_Z:
-#    trBuff += linenumber() + 'G0 Z' + format(CURRENT_Z, strFormat) + "\n"
-
-#  # Mouvement de percage
-#  if cmd in ('G81', 'G82'):
-#    trBuff += linenumber() + 'G1 Z' + format(drill_Z, strFormat) + ' F' + format(drill_Speed, '.2f') + "\n"
-#    # Temporisation eventuelle
-#    if cmd == 'G82':
-#      trBuff += linenumber() + 'G4 P' + str(drill_DwellTime) + "\n"
-#    # Sortie de percage
-#    trBuff += linenumber() + 'G0 Z' + format(RETRACT_Z, strFormat) + "\n"
-#  else: # 'G83'
-#    next_Stop_Z = RETRACT_Z - drill_Step
-#    while 1:
-#      if next_Stop_Z > drill_Z:
-#        trBuff += linenumber() + 'G1 Z' + format(next_Stop_Z, strFormat) + ' F' + format(drill_Speed, '.2f') + "\n"
-#        trBuff += linenumber() + 'G0 Z' + format(RETRACT_Z, strFormat) + "\n"
-#        next_Stop_Z -= drill_Step
-#      else:
-#        trBuff += linenumber() + 'G1 Z' + format(drill_Z, strFormat) + ' F' + format(drill_Speed, '.2f') + "\n"
-#        trBuff += linenumber() + 'G0 Z' + format(RETRACT_Z, strFormat) + "\n"
-#        break
-#
-#  if MOTION_MODE == 'G91':
-#    trBuff += linenumber() + 'G91' # Restore le mode de deplacement relatif
-#
-  return trBuff
+    return trBuff
 
 print(__name__ + " gcode postprocessor loaded.")
 
