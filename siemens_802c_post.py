@@ -71,7 +71,6 @@ G53 G0 Z0
 #Postamble text will appear following the last operation.
 POSTAMBLE = '''M09
 M05
-G80
 G40
 G17
 G90
